@@ -11,9 +11,9 @@ on:
         type: boolean
         default: true
       count:
-        description: '本次尝试的账号数量（定时任务固定为 3）'
+        description: '本次尝试的账号数量（定时任务固定为 10）'
         type: string
-        default: '3'
+        default: '10'
 
 permissions:
   contents: read
