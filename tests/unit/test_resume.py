@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from nodes import api, cli
+from nodes import api, cli, providers
 from nodes import workflow as app
 
 EMAIL = "saved@example.org"
@@ -29,7 +29,7 @@ def saved_account(tmp_path, monkeypatch):
     def unexpected(*args, **kwargs):
         pytest.fail("Resume must not create a mailbox, register, or launch a browser")
 
-    monkeypatch.setattr(app, "CloudMail", unexpected)
+    monkeypatch.setattr(providers, "CloudMail", unexpected)
     monkeypatch.setattr(api, "register", unexpected)
     monkeypatch.setattr(app, "solve_turnstile", unexpected)
     monkeypatch.setattr(cli, "load_config", lambda path: {})

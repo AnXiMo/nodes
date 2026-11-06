@@ -1,7 +1,7 @@
 services:
   nodes:
     build: .
-    image: ${NODES_IMAGE:-ghcr.io/dnslin/nodes:latest}
+    image: ${NODES_IMAGE:-nodes:local}
     init: true
     env_file:
       - .env

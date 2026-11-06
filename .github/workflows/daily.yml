@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 30
     env:
       NODES_COUNT: ${{ '10' }}
+      MAIL_PROVIDER: ${{ vars.MAIL_PROVIDER || 'instant_mail' }}
     steps:
       - uses: actions/checkout@v7
       - name: Check required configuration
@@ -41,7 +42,13 @@ jobs:
           RESIN_ADMIN_TOKEN: ${{ secrets.RESIN_ADMIN_TOKEN }}
         run: |
           missing=0
-          for name in CLOUD_MAIL_URL CLOUD_MAIL_EMAIL CLOUD_MAIL_PASSWORD RESIN_URL RESIN_ADMIN_TOKEN; do
+          required=(RESIN_URL RESIN_ADMIN_TOKEN)
+          case "$MAIL_PROVIDER" in
+            instant_mail) ;;
+            cloud_mail) required+=(CLOUD_MAIL_URL CLOUD_MAIL_EMAIL CLOUD_MAIL_PASSWORD) ;;
+            *) echo '::error::MAIL_PROVIDER must be instant_mail or cloud_mail'; exit 1 ;;
+          esac
+          for name in "${required[@]}"; do
             if [ -z "${!name}" ]; then
               echo "::error::缺少 GitHub Secret: $name"
               missing=1

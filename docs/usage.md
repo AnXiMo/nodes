@@ -12,6 +12,7 @@ JSON 配置适用于本机 Python 运行。默认 Docker 配置不会复制或�
 
 | 环境变量 | JSON 字段 | 含义 |
 | --- | --- | --- |
+| `MAIL_PROVIDER` | `mail_provider` | `instant_mail` 使用 Gmail；`cloud_mail` 使用原账号密码接口 |
 | `CLOUD_MAIL_URL` | `cloud_mail_url` | Cloud Mail 3.0.0 站点地址，不包含 `/api` |
 | `CLOUD_MAIL_EMAIL` | `cloud_mail_email` | 有权创建附属邮箱的登录邮箱 |
 | `CLOUD_MAIL_PASSWORD` | `cloud_mail_password` | 登录密码 |
@@ -23,17 +24,23 @@ JSON 配置适用于本机 Python 运行。默认 Docker 配置不会复制或�
 
 Docker 镜像已配置 `/usr/bin/chromium`，一般不需要指定浏览器路径。不要把宿主机的 macOS 或 Windows 浏览器路径传入 Linux 容器。
 
-`NODES_IMAGE` 仅供 Docker Compose 选择镜像，默认是 `ghcr.io/dnslin/nodes:latest`。可在 `.env` 中设置为 `ghcr.io/dnslin/nodes:0.4.0` 固定版本。它不是 Python / JSON 配置项。
+`NODES_IMAGE` 仅供 Docker Compose 选择镜像，默认是 `nodes:local`；首次运行用 `docker compose build` 构建本分支代码。它不是 Python / JSON 配置项。上游镜像不包含本分支的 Gmail 适配。
+
+默认模板设置 `MAIL_PROVIDER=instant_mail`，固定请求 `gmail.com` 类型，不随机使用 `googlemail.com` 或其他域名，无需填写 Cloud Mail 三项配置。省略 `MAIL_PROVIDER` 时，没有 Cloud Mail 配置就用 Instant Mail；发现任意旧 Cloud Mail 配置则按旧模式校验三项字段。显式指定 `instant_mail` 可覆盖残留的旧配置。
+
+Instant Mail 协议来自 `Instant_mail/instant_mail_api.py`。创建后立即将邮箱与 `mailbox_id` 存入 `account/instant-mail/`，并在账号记录中保留 `mail_provider`、`mailbox_id`。保留整个 `account/` 目录即可在重启后恢复。服务商分配随机 Gmail 收信地址，不支持指定完整 Gmail 地址，也不是创建 Google 账号或提供 SMTP 发信功能。验证码发送、重发使用 ProxyScrape 原接口。
+
+Gmail 收信以本次请求前已见邮件为基线，字符串邮件 ID 映射为稳定序号；新邮件单独读取详情，按目标收件地址和 ProxyScrape 发件域名过滤，再解析文本或 HTML 中的验证码。邮箱 HTTP 请求设有 30 秒超时，失败会保留阶段信息。
 
 Cloud Mail 客户端共用本轮登录状态，邮箱 HTTP 请求依次执行，浏览器任务仍可并发。只有明确的 HTTP 401 或 API `code: 401` 才触发一次重新登录。网络错误、权限错误、登录失败或第二次 401 会直接报告。
 
-新邮箱使用站点返回的第一个可用域名。收信只处理本轮邮箱中新增、收件人匹配且发件人来自 ProxyScrape 域名的邮件。
+Cloud Mail 新邮箱使用站点返回的第一个可用域名。两种邮箱均只处理新增、收件人匹配且发件人来自 ProxyScrape 域名的邮件。
 
 ## Docker
 
 ```bash
-# 首次运行或更新版本后拉取镜像
-docker compose pull
+# 首次运行或更新版本后构建本分支镜像
+docker compose build
 
 # 检查邮箱，不创建账号
 ./scripts/run-docker.sh --check-mail
@@ -120,7 +127,7 @@ py -m venv .venv
 | --- | --- | --- |
 | `--count N` | 本轮任务数，失败任务可能按 `--attempts` 使用新邮箱重试 | 交互菜单输入 |
 | `--resume EMAIL` | 继续该邮箱已保存账号的试用处理和代理导出，只执行一次 | 关闭 |
-| `--check-mail` | 登录 Cloud Mail 并读取主邮箱邮件列表 | 关闭 |
+| `--check-mail` | Instant Mail 创建并保存 Gmail 邮箱、读取邮件列表；Cloud Mail 登录并读取主邮箱 | 关闭 |
 | `--sync-resin` | 只将已有导出合并同步到 Resin，不创建邮箱、注册或领取试用 | 关闭 |
 | `--threads N` | 并发数，实际不超过任务数和 8 | 3 |
 | `--attempts N` | 每个任务最多尝试次数 | 3 |
@@ -129,7 +136,7 @@ py -m venv .venv
 | `--mail-timeout N` | 等待新验证邮件的秒数 | 180 |
 | `--challenge-timeout N` | 浏览器验证超时秒数 | 120 |
 
-`--count`、`--resume`、`--check-mail`、`--sync-resin` 互斥。`--resume` 不使用邮箱配置、浏览器或 `--attempts`；它要求已保存的 ProxyScrape 访问凭据仍然有效。`--sync-resin` 只需要 Resin 配置和已有节点文件。
+`--count`、`--resume`、`--check-mail`、`--sync-resin` 互斥。`--resume` 不启动浏览器、不注册新账号；它要求已保存的 ProxyScrape 访问凭据仍然有效。Instant Mail 账号若尚未完成验证，会使用记录里的 `mailbox_id` 恢复同一邮箱，重新发送验证码并等待新邮件，遵守 `--mail-timeout`；已验证账号直接导出。Cloud Mail 旧账号仍要求已验证。`--sync-resin` 只需要 Resin 配置和已有节点文件。
 
 一轮命令行任务结束后退出。全部任务导出且已启用的 Resin 同步成功返回 0；存在未完成任务或同步失败返回 1；参数错误返回 2；程序捕获到键盘中断时返回 130。
 
@@ -194,7 +201,7 @@ Docker 同步读取 Docker 主机映射的 `node/`；使用远程 Docker 或 Col
 
 ```bash
 git pull --ff-only
-docker compose pull
+docker compose build
 ```
 
 固定了 `NODES_IMAGE` 版本的用户，需要先修改该值再拉取新版本。本地源码构建用户重新执行 `NODES_IMAGE=nodes:local docker compose build`。本机直接运行时，在更新后重新执行 `.venv/bin/python -m pip install .`。

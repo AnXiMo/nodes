@@ -45,7 +45,55 @@ def extract_code(message: dict) -> str | None:
     return candidates.pop() if len(candidates) == 1 else None
 
 
-class CloudMail:
+class Mailbox:
+    def _message_with_body(self, email, message):
+        return message
+
+    def wait_for_code(
+        self,
+        email: str,
+        *,
+        after_id: int,
+        timeout: float = 180,
+        poll_interval: float = 3,
+    ) -> str:
+        deadline = time.monotonic() + timeout
+        while True:
+            rows = sorted(self.list_messages(email), key=lambda row: row["emailId"], reverse=True)
+            new_rows = [row for row in rows if row["emailId"] > after_id]
+            matching = 0
+            for message in new_rows:
+                message = self._message_with_body(email, message)
+                sender = parseaddr(message.get("sendEmail") or "")[1].lower()
+                domain = sender.rpartition("@")[2]
+                if (message.get("toEmail") or "").lower() != email.lower() or not (
+                    domain == "proxyscrape.com" or domain.endswith(".proxyscrape.com")
+                ):
+                    continue
+                matching += 1
+                code = extract_code(message)
+                if code:
+                    return code
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                if not new_rows:
+                    reason = "未找到新邮件"
+                elif not matching:
+                    reason = "新邮件未匹配目标收件地址及 ProxyScrape 发件域名"
+                else:
+                    reason = "匹配邮件中未解析到验证码"
+                raise TimeoutError(
+                    f"等待 ProxyScrape 新验证码超时；{reason}。最后一次查询："
+                    f"返回 {len(rows)} 封，新邮件 {len(new_rows)} 封，匹配 {matching} 封；"
+                    f"基线编号 {after_id}"
+                )
+            time.sleep(min(poll_interval, remaining))
+
+
+class CloudMail(Mailbox):
+    provider = "cloud_mail"
+    display_name = "Cloud Mail"
+
     def __init__(self, base_url: str, email: str, password: str, *, session=None):
         self.base_url = base_url.rstrip("/")
         self.email = email
@@ -162,42 +210,3 @@ class CloudMail:
         ):
             raise RuntimeError("Cloud Mail 邮件列表格式不符合接口约定")
         return rows
-
-    def wait_for_code(
-        self,
-        email: str,
-        *,
-        after_id: int,
-        timeout: float = 180,
-        poll_interval: float = 3,
-    ) -> str:
-        deadline = time.monotonic() + timeout
-        while True:
-            rows = sorted(self.list_messages(email), key=lambda row: row["emailId"], reverse=True)
-            new_rows = [row for row in rows if row["emailId"] > after_id]
-            matching = 0
-            for message in new_rows:
-                sender = parseaddr(message.get("sendEmail") or "")[1].lower()
-                domain = sender.rpartition("@")[2]
-                if (message.get("toEmail") or "").lower() != email.lower() or not (
-                    domain == "proxyscrape.com" or domain.endswith(".proxyscrape.com")
-                ):
-                    continue
-                matching += 1
-                code = extract_code(message)
-                if code:
-                    return code
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                if not new_rows:
-                    reason = "未找到新邮件"
-                elif not matching:
-                    reason = "新邮件未匹配目标收件地址及 ProxyScrape 发件域名"
-                else:
-                    reason = "匹配邮件中未解析到验证码"
-                raise TimeoutError(
-                    f"等待 ProxyScrape 新验证码超时；{reason}。最后一次查询："
-                    f"返回 {len(rows)} 封，新邮件 {len(new_rows)} 封，匹配 {matching} 封；"
-                    f"基线编号 {after_id}"
-                )
-            time.sleep(min(poll_interval, remaining))

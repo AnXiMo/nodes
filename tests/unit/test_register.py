@@ -3,7 +3,7 @@ import json
 import pytest
 import requests
 
-from nodes import api
+from nodes import api, providers
 from nodes import workflow as app
 
 CONFIG = {
@@ -53,7 +53,7 @@ class Mail:
 
 
 def setup_flow(monkeypatch):
-    monkeypatch.setattr(app, "CloudMail", Mail)
+    monkeypatch.setattr(providers, "CloudMail", Mail)
     monkeypatch.setattr(app, "solve_turnstile", lambda **kw: "challenge-token")
     monkeypatch.setattr(
         api,
@@ -175,7 +175,7 @@ def test_round_shares_mail_client_and_closes_it_after_all_workers(monkeypatch, t
         clients.append(mail)
         return {"proxy_count": 1}
 
-    monkeypatch.setattr(app, "CloudMail", Login)
+    monkeypatch.setattr(providers, "CloudMail", Login)
     monkeypatch.setattr(app, "register_one", worker)
     assert app.run_round(3, 2, True, CONFIG, root=tmp_path) is True
     assert calls == ["login"]

@@ -6,13 +6,13 @@
 
 ## 配置
 
-Fork 本仓库，在你自己的仓库中打开 **Settings → Secrets and variables → Actions → Secrets**，添加以下 Repository secrets：
+默认使用 Instant Mail Gmail，无需邮箱 Secrets。在你自己的仓库中打开 **Settings → Secrets and variables → Actions → Secrets**，添加 Resin 的两项 Repository secrets。若需要原 Cloud Mail，在 Variables 中设置 `MAIL_PROVIDER=cloud_mail`，再补充三项 Cloud Mail Secrets：
 
 | Secret | 内容 |
 | --- | --- |
-| `CLOUD_MAIL_URL` | Cloud Mail 3.0.0 站点地址，不包含 `/api` |
-| `CLOUD_MAIL_EMAIL` | 有权创建附属邮箱的登录邮箱 |
-| `CLOUD_MAIL_PASSWORD` | 邮箱登录密码 |
+| `CLOUD_MAIL_URL` | 仅 Cloud Mail：3.0.0 站点地址，不包含 `/api` |
+| `CLOUD_MAIL_EMAIL` | 仅 Cloud Mail：有权创建附属邮箱的登录邮箱 |
+| `CLOUD_MAIL_PASSWORD` | 仅 Cloud Mail：邮箱登录密码 |
 | `RESIN_URL` | Resin 站点地址，不包含 `/api/v1`，需要能从 GitHub 运行环境访问 |
 | `RESIN_ADMIN_TOKEN` | Resin 管理令牌，不是代理请求用的令牌 |
 

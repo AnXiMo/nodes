@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from nodes import cli, workflow
+from nodes import cli, providers, workflow
 
 CONFIG = {
     "cloud_mail_url": "https://mail.example.org",
@@ -130,7 +130,7 @@ def test_check_mail_uses_working_directory_config_without_a_display(monkeypatch,
         def close(self):
             events.append("closed")
 
-    monkeypatch.setattr(cli, "CloudMail", Mail)
+    monkeypatch.setattr(providers, "CloudMail", Mail)
     assert cli.main(["--check-mail"]) == 0
     assert events == ["owner@example.org", "closed"]
     assert not (tmp_path / "account").exists()
@@ -144,7 +144,7 @@ def test_sync_resin_needs_no_mail_browser_or_registration(monkeypatch):
     def unexpected(*args, **kwargs):
         pytest.fail("Sync must not access mailbox, browser or registration")
 
-    monkeypatch.setattr(cli, "CloudMail", unexpected)
+    monkeypatch.setattr(providers, "CloudMail", unexpected)
     monkeypatch.setattr(cli, "relaunch_with_display", unexpected)
     monkeypatch.setattr(workflow, "run_round", unexpected)
     monkeypatch.setattr(workflow, "resume_account", unexpected)

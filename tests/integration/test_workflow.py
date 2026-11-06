@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 from nodes import api, cli, workflow
+from nodes.instant_mail import InstantMail, decode_payload, encode_payload
 
 
 @pytest.fixture
@@ -23,6 +24,9 @@ def api_server():
         "mail_token": None,
         "trial_claimed": False,
         "trial_claims": 0,
+        "instant_mail": False,
+        "verification_count": 0,
+        "verification_failures": 0,
     }
 
     class Handler(BaseHTTPRequestHandler):
@@ -50,6 +54,41 @@ def api_server():
                 state["expired"] = True
                 state["mail_token"] = "revoked"
                 self.respond({"code": 401, "message": "auth expired", "data": None})
+                return
+            if path.startswith("/gmail/api/"):
+                assert self.headers["x-app-key"] == "b9db03078622"
+                query = parse_qs(urlsplit(self.path).query)
+                email = "fixture@gmail.com"
+                if path == "/gmail/api/g-mail":
+                    assert self.command == "POST"
+                    assert query == {"params": ["x03e"]}
+                    assert json.loads(decode_payload(json.loads(body)["data"])) == {
+                        "email": "random@gmail.com"
+                    }
+                    state["accounts"].append({"email": email})
+                    result = {"success": True, "id": "gmail-mailbox", "email": email}
+                else:
+                    assert json.loads(decode_payload(query["params"][0])) == {"email": email}
+                    assert path.startswith("/gmail/api/email/gmail-mailbox/messages")
+                    old = {
+                        "id": "zzz-old", "from": "no-reply@proxyscrape.com", "to": email,
+                        "subject": "Old verification code: 999999",
+                    }
+                    if path.endswith("/messages"):
+                        result = [old]
+                        for number in range(state["verification_count"]):
+                            result.insert(0, {
+                                "id": f"aaa-new-{number}", "from": "no-reply@proxyscrape.com",
+                                "to": email, "subject": "Verify your email",
+                            })
+                    else:
+                        assert "/aaa-new-" in path, "Must never read a baseline message"
+                        result = {
+                            "id": path.rsplit("/", 1)[-1], "to": email,
+                            "from": "no-reply@proxyscrape.com",
+                            "html": "<b>Your verification code: aB3dE6gH9j</b>",
+                        }
+                self.respond({"data": encode_payload(json.dumps(result))})
                 return
             if path == "/mail/api/login":
                 assert json.loads(body) == {"email": "owner@example.org", "password": "secret"}
@@ -90,11 +129,16 @@ def api_server():
                 assert self.headers["Authorization"] == "Bearer local-access"
                 if path == "/resend":
                     state["verification_sent"] = True
+                    state["verification_count"] += 1
                     result = {"success": True}
                 elif path == "/verify":
                     assert "multipart/form-data" in self.headers["Content-Type"]
                     assert b'name="verificationCode"' in body
                     assert b"aB3dE6gH9j" in body
+                    if state["verification_failures"]:
+                        state["verification_failures"] -= 1
+                        self.respond({"error": "temporary verification failure"}, 503)
+                        return
                     state["verified"] = True
                     result = {"success": True}
                 elif path == "/me":
@@ -226,3 +270,46 @@ def test_one_round_creates_mailbox_verifies_and_persists_exports(
     assert sum(path == "/verify" for _, path, _ in state["requests"]) == 1
     assert sum(path == "/mail/api/account/add" for _, path, _ in state["requests"]) == 1
     assert len(list((tmp_path / "node").glob("*.txt"))) == 2
+
+
+@pytest.mark.parametrize("fail_verification", [False, True])
+def test_gmail_round_and_resume_use_persisted_mailbox_without_reregistering(
+    api_server, monkeypatch, tmp_path, fail_verification,
+):
+    from nodes import providers
+
+    base, state = api_server
+    state["verification_failures"] = int(fail_verification)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"mail_provider": "instant_mail"})
+    monkeypatch.setattr(cli, "relaunch_with_display", lambda argv: None)
+    monkeypatch.setattr(workflow, "solve_turnstile", lambda **kw: "local-token")
+    def factory(**kw):
+        return InstantMail(base_url=base + "/gmail", **kw)
+
+    monkeypatch.setattr(providers, "InstantMail", factory)
+    monkeypatch.setattr(workflow, "InstantMail", factory)
+    monkeypatch.setattr(api, "BASE_URL", base)
+    for name, path in [
+        ("PS_REGISTER", "/register"), ("PS_RESEND", "/resend"),
+        ("PS_VERIFY_EMAIL", "/verify"), ("PS_ME", "/me"),
+    ]:
+        monkeypatch.setattr(api, name, base + path)
+    assert cli.main(["--count", "1", "--threads", "1", "--attempts", "1"]) == int(fail_verification)
+    record_file = next((tmp_path / "account").glob("accounts_*.jsonl"))
+    records = [json.loads(line) for line in record_file.read_text().splitlines()]
+    assert records[0]["verified"] is False  # saved before waiting for mail
+    assert records[-1]["mailbox_id"] == "gmail-mailbox"
+    assert records[-1]["mail_provider"] == "instant_mail"
+    assert records[-1]["verified"] is not fail_verification
+    assert cli.main(["--resume", "fixture@gmail.com", "--mail-timeout", "1"]) == 0
+    resumed = json.loads(record_file.read_text().splitlines()[-1])
+    assert resumed["verified"] is True
+    assert resumed["proxy_count"] == 2
+    assert state["trial_claims"] == 1
+    assert len(state["accounts"]) == 1
+    paths = [path for _, path, _ in state["requests"]]
+    assert paths.count("/gmail/api/g-mail") == 1
+    assert paths.count("/register") == 1
+    assert paths.count("/resend") == 1 + int(fail_verification)
+    assert not any(path.startswith("/mail/") for path in paths)

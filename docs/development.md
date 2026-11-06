@@ -64,6 +64,8 @@ pyproject.toml  依赖、命令入口和构建配置
 | `src/nodes/workflow.py` | 注册、验证、批量导出与已有账号恢复 |
 | `src/nodes/api.py` | ProxyScrape 账号、试用和代理 HTTP 接口 |
 | `src/nodes/mail.py` | Cloud Mail 登录、附属邮箱、邮件轮询和验证码识别 |
+| `src/nodes/instant_mail.py` | Instant Mail Gmail 协议、邮箱凭据持久化、邮件列表与详情适配 |
+| `src/nodes/providers.py` | 邮箱服务选择及旧 Cloud Mail 配置兼容 |
 | `src/nodes/browser.py` | Chrome / Chromium 配置和验证组件状态处理 |
 | `src/nodes/config.py` | 工作目录中的环境变量、`.env` 和 JSON 配置合并 |
 | `src/nodes/storage.py` | 账号快照、代理文件和输出路径 |

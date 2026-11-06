@@ -9,6 +9,7 @@ from dotenv import dotenv_values
 DEFAULT_EXTENSION = Path(__file__).parent / "resources" / "turnstile"
 
 FIELDS = {
+    "mail_provider": "MAIL_PROVIDER",
     "cloud_mail_url": "CLOUD_MAIL_URL",
     "cloud_mail_email": "CLOUD_MAIL_EMAIL",
     "cloud_mail_password": "CLOUD_MAIL_PASSWORD",

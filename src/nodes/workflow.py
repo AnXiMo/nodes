@@ -11,7 +11,8 @@ import requests
 from . import api
 from .browser import solve_turnstile
 from .console import log, set_worker
-from .mail import CloudMail
+from .instant_mail import InstantMail
+from .providers import create_mail, mail_provider
 from .storage import find_account, new_round_files, resume_proxy_file, save_account, save_proxies
 
 
@@ -34,7 +35,7 @@ def complete_proxy_export(rec, session, node_file):
     log(f"已导出 {len(proxies)} 个代理，子账号 {account_id}")
 
 
-def resume_account(email, *, root=None):
+def resume_account(email, *, root=None, mail_timeout=180):
     root = Path.cwd() if root is None else Path(root)
     path, rec = find_account(root, email)
     if not rec.get("access_token"):
@@ -44,6 +45,21 @@ def resume_account(email, *, root=None):
     try:
         with requests.Session() as session:
             session.headers.update(api.HEADERS)
+            if rec.get("mail_provider") == "instant_mail":
+                current = api.whoami(session, rec["access_token"])
+                rec.update(verified=current.get("EmailVerified") is True, userData=current)
+                if current.get("EmailVerified") is not True:
+                    mail = InstantMail(root=root)
+                    try:
+                        mail.restore_mailbox(email, rec.get("mailbox_id"))
+                        after_id = max(
+                            (row["emailId"] for row in mail.list_messages(email)), default=0
+                        )
+                        api.resend_code(session, rec["access_token"])
+                        code = mail.wait_for_code(email, after_id=after_id, timeout=mail_timeout)
+                        api.verify_email(session, rec["access_token"], code)
+                    finally:
+                        mail.close()
             complete_proxy_export(rec, session, node_file)
     except Exception as exc:
         rec.update(error=str(exc), proxy_count=0)
@@ -63,11 +79,12 @@ def _register_once(
     *,
     mail_timeout=180,
     challenge_timeout=120,
+    account_file=None,
 ):
-    """建 Cloud Mail 附属邮箱，再执行 Nodes 的注册、验证和代理导出流程。"""
+    """创建所选服务商邮箱，再执行注册、验证和代理导出流程。"""
     email = mail.new_address()
     mail.ensure_mailbox(email)
-    log(f"Cloud Mail 邮箱: {email}")
+    log(f"{getattr(mail, 'display_name', 'Cloud Mail')} 邮箱: {email}")
     after_id = max((row["emailId"] for row in mail.list_messages(email)), default=0)
     password = "Ps" + "".join(random.choices(string.ascii_letters + string.digits, k=10)) + "!9"
     token = solve_turnstile(headless=headless, timeout=challenge_timeout, config=config)
@@ -84,8 +101,13 @@ def _register_once(
         "ts": int(time.time()),
     }
     try:
+        if getattr(mail, "provider", None) == "instant_mail":
+            rec.update(mail.mailbox_record(email))
+            # Preserve access/mailbox credentials even if verification is interrupted.
+            if account_file is not None:
+                save_account(rec, account_file)
         api.resend_code(session, access_token)
-        log("等待 Cloud Mail 新验证邮件…")
+        log("等待新验证邮件…")
         code = mail.wait_for_code(email, after_id=after_id, timeout=mail_timeout)
         api.verify_email(session, access_token, code)
         complete_proxy_export(rec, session, node_file)
@@ -105,7 +127,9 @@ def register_one(idx, headless, acc_file, node_file, config, mail, max_attempts=
         if attempt > 1:
             log(f"—— 第 {attempt}/{max_attempts} 次尝试 ——")
         try:
-            rec = _register_once(headless, node_file, config, mail, **kwargs)
+            rec = _register_once(
+                headless, node_file, config, mail, account_file=acc_file, **kwargs
+            )
         except Exception as exc:
             log(f"[x] 本次尝试失败: {exc}")
             continue
@@ -121,13 +145,10 @@ def register_one(idx, headless, acc_file, node_file, config, mail, max_attempts=
 
 
 def run_round(count, threads, headless, config, *, root=None, **kwargs):
-    mail = CloudMail(
-        config["cloud_mail_url"],
-        config["cloud_mail_email"],
-        config["cloud_mail_password"],
-    )
+    mail = create_mail(config, root=root)
     try:
-        mail._login()
+        if mail_provider(config) == "cloud_mail":
+            mail._login()
         acc_file, node_file = new_round_files(Path.cwd() if root is None else root)
         t0 = time.time()
         ok = []

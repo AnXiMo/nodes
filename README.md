@@ -1,6 +1,8 @@
 # Nodes
 
-使用 Cloud Mail 完成 ProxyScrape 注册、邮箱验证与 HTTP 代理导出，支持 GitHub Actions、Docker 和 Linux。
+默认使用 Instant Mail 分配 `gmail.com` 邮箱，完成 ProxyScrape 注册、邮箱验证码接收与 HTTP 代理导出，支持 GitHub Actions、Docker 和 Linux，也兼容 Cloud Mail。
+
+Gmail 协议移植自 AnXiMo 的 `Instant_mail/instant_mail_api.py`，无需启动原项目、浏览器扩展或提供 Gmail 密码。验证码由 ProxyScrape 发送，程序通过 Instant Mail 的列表和邮件详情接口收取，仅使用本次操作后出现且收发地址匹配的验证码。邮箱凭据自动保存在 `account/instant-mail/`。
 
 [![CI](https://github.com/dnslin/nodes/actions/workflows/ci.yml/badge.svg)](https://github.com/dnslin/nodes/actions/workflows/ci.yml)
 [![Daily](https://github.com/dnslin/nodes/actions/workflows/daily.yml/badge.svg)](https://github.com/dnslin/nodes/actions/workflows/daily.yml)
@@ -12,7 +14,7 @@
 
 ## GitHub Actions
 
-1. Fork 本仓库，按[配置指南](docs/actions.md#配置)添加邮箱和 Resin 的 5 项 Secrets。
+1. Fork 本仓库，按[配置指南](docs/actions.md#配置)添加 Resin 的 2 项 Secrets；默认 Gmail 无需邮箱 Secrets。
 2. 在 **Actions → Daily Nodes** 中启用工作流，先运行默认的环境检查，再取消“仅检查运行环境”执行实际任务。
 3. 此后每天北京时间 **21:00** 尝试注册 **3 个账号**，导出后自动同步 Resin。
 
@@ -20,19 +22,19 @@
 
 ## Docker / 本机运行
 
-需要 Docker、Docker Compose 和 POSIX shell；Windows 推荐 WSL。邮箱需为可创建附属邮箱的 Cloud Mail 3.0.0 账号。
+需要 Docker、Docker Compose 和 POSIX shell；Windows 推荐 WSL。默认 Gmail 无需邮箱账号配置。
 
 ```bash
-git clone https://github.com/dnslin/nodes.git
+git clone https://github.com/AnXiMo/nodes.git
 cd nodes
 cp .env.example .env
-# 按使用指南填写 .env 中的邮箱信息，可选配置 Resin。
-docker compose pull
+# 保持 MAIL_PROVIDER=instant_mail，可选配置 Resin。
+docker compose build
 ./scripts/run-docker.sh --check-mail
 ./scripts/run-docker.sh --count 1 --threads 1 --attempts 1 --hide-browser
 ```
 
-账号保存在 `account/`，代理保存在 `node/`，无需进入容器。已有账号可用 `./scripts/run-docker.sh --resume EMAIL` 继续处理。Linux 直接安装、配置字段和故障处理见[使用指南](docs/usage.md)。
+账号保存在 `account/`，代理保存在 `node/`，无需进入容器。`--check-mail` 会创建一个 Gmail 邮箱并检查收信接口。已有账号可用 `./scripts/run-docker.sh --resume EMAIL` 继续处理，包括带有 `mailbox_id` 的 Gmail 未完成验证账号。Linux 直接安装、配置字段和故障处理见[使用指南](docs/usage.md)。
 
 试用资格、代理数量和验证服务是否接受请求由服务端决定；导出成功不代表每个代理都已通过连通性检查。
 

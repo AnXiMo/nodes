@@ -10,7 +10,7 @@ from pathlib import Path
 from . import resin, workflow
 from .config import load_config
 from .console import log
-from .mail import CloudMail
+from .providers import create_mail, mail_provider
 
 
 def relaunch_with_display(argv):
@@ -37,7 +37,7 @@ def guide():
     print("=" * 52)
     print("   ProxyScrape 批量注册机  ·  本地打码走协议")
     print("   浏览器只出 Turnstile token，注册/收信/验证全走 HTTP")
-    print("   邮箱: Cloud Mail 3.0.0   账号→account/  代理→node/")
+    print("   邮箱: Instant Mail Gmail / Cloud Mail   账号→account/  代理→node/")
     print("=" * 52)
     try:
         count = int(_ask("① 注册数量        [默认 5，输 0 退出]: ", "5"))
@@ -65,10 +65,14 @@ def _positive_int(value):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = argparse.ArgumentParser(prog="nodes", description="Nodes · Cloud Mail 3.0.0 版本")
+    parser = argparse.ArgumentParser(
+        prog="nodes", description="Nodes · Instant Mail Gmail / Cloud Mail"
+    )
     command = parser.add_mutually_exclusive_group()
     command.add_argument("--count", type=_positive_int, help="本轮注册数量；省略则进入交互模式")
-    command.add_argument("--resume", metavar="EMAIL", help="继续已保存且邮箱已验证账号的代理导出")
+    command.add_argument(
+        "--resume", metavar="EMAIL", help="恢复 Gmail 邮箱验证或继续已验证账号导出"
+    )
     parser.add_argument("--threads", type=_positive_int, default=3, help="并发数，默认 3，最多 8")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--hide-browser", dest="hidden", action="store_true", help="隐藏浏览器窗口")
@@ -82,7 +86,7 @@ def main(argv=None):
         "--challenge-timeout", type=_positive_int, default=120, help="浏览器验证超时秒数"
     )
     command.add_argument(
-        "--check-mail", action="store_true", help="仅检查 Cloud Mail 登录及主邮箱收信接口"
+        "--check-mail", action="store_true", help="检查邮箱；Gmail 模式会创建并保存邮箱"
     )
     command.add_argument(
         "--sync-resin", action="store_true", help="将已有导出合并同步到 Resin，不注册新账号"
@@ -97,30 +101,20 @@ def main(argv=None):
             resin.sync(config)
             return 0
         if args.resume:
-            success = workflow.resume_account(args.resume)
+            success = workflow.resume_account(args.resume, mail_timeout=args.mail_timeout)
             if success and resin_enabled:
                 resin.sync(config, skip_empty=True)
             return 0 if success else 1
-        missing = [
-            key.upper()
-            for key in (
-                "cloud_mail_url",
-                "cloud_mail_email",
-                "cloud_mail_password",
-            )
-            if not config[key]
-        ]
-        if missing:
-            raise ValueError("缺少 Cloud Mail 配置: " + ", ".join(missing))
+        selected = mail_provider(config)
         if args.check_mail:
-            mail = CloudMail(
-                config["cloud_mail_url"],
-                config["cloud_mail_email"],
-                config["cloud_mail_password"],
-            )
+            mail = create_mail(config)
             try:
-                rows = mail.list_messages(config["cloud_mail_email"])
-                log(f"Cloud Mail 接口正常，当前返回 {len(rows)} 封邮件")
+                email = (
+                    mail.new_address() if selected == "instant_mail" else config["cloud_mail_email"]
+                )
+                rows = mail.list_messages(email)
+                label = "Instant Mail Gmail" if selected == "instant_mail" else "Cloud Mail"
+                log(f"{label} 接口正常，当前返回 {len(rows)} 封邮件")
             finally:
                 mail.session.close()
             return 0

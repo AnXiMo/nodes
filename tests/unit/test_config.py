@@ -5,6 +5,12 @@ import pytest
 from nodes.config import DEFAULT_EXTENSION, load_config
 
 
+def test_mail_provider_environment_overrides_json(tmp_path):
+    (tmp_path / "config.local.json").write_text('{"mail_provider":"cloud_mail"}')
+    config = load_config(tmp_path, environ={"MAIL_PROVIDER": " instant_mail "})
+    assert config["mail_provider"] == "instant_mail"
+
+
 def test_environment_overrides_json_and_dotenv(tmp_path):
     (tmp_path / "config.local.json").write_text(
         json.dumps(
