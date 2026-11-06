@@ -10,10 +10,14 @@ on:
         description: '仅检查运行环境，不注册账号或连接邮箱 / Resin'
         type: boolean
         default: true
+      check_services:
+        description: '另外检查 Gmail 邮箱及 Resin 连接，不注册 ProxyScrape 账号'
+        type: boolean
+        default: false
       count:
-        description: '本次尝试的账号数量（定时任务固定为 10）'
+        description: '本次尝试的账号数量（定时任务默认 3，可用 NODES_COUNT 变量调整）'
         type: string
-        default: '10'
+        default: '3'
 
 permissions:
   contents: read
@@ -28,12 +32,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      NODES_COUNT: ${{ '10' }}
+      NODES_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.count || vars.NODES_COUNT || '3' }}
       MAIL_PROVIDER: ${{ vars.MAIL_PROVIDER || 'instant_mail' }}
     steps:
       - uses: actions/checkout@v7
       - name: Check required configuration
-        if: github.event_name == 'schedule' || !inputs.check_only
+        if: github.event_name == 'schedule' || !inputs.check_only || inputs.check_services
         env:
           CLOUD_MAIL_URL: ${{ secrets.CLOUD_MAIL_URL }}
           CLOUD_MAIL_EMAIL: ${{ secrets.CLOUD_MAIL_EMAIL }}
@@ -60,13 +64,20 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: Install Chrome for Testing
+        id: browser
+        uses: browser-actions/setup-chrome@48483d551c22a1fe6154c6a195ccc6d5773dc8c4 # v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
       - name: Install native runtime
+        env:
+          CHROME_PATH: ${{ steps.browser.outputs.chrome-path }}
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb xauth
-          browser_path="$(command -v chromium)"
-          "$browser_path" --version
-          echo "BROWSER_PATH=$browser_path" >> "$GITHUB_ENV"
+          "$CHROME_PATH" --version
+          echo "BROWSER_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
           python -m pip install .
       - name: Check native browser without external services
         if: github.event_name == 'workflow_dispatch' && inputs.check_only
@@ -74,6 +85,15 @@ jobs:
           nodes --help
           xvfb-run -a -s '-screen 0 1280x900x24' python tests/smoke/browser.py
           xvfb-run -a -s '-screen 0 1280x900x24' python tests/smoke/turnstile_dom.py
+      - name: Check mailbox and Resin connectivity
+        if: github.event_name == 'workflow_dispatch' && inputs.check_services
+        env:
+          CLOUD_MAIL_URL: ${{ secrets.CLOUD_MAIL_URL }}
+          CLOUD_MAIL_EMAIL: ${{ secrets.CLOUD_MAIL_EMAIL }}
+          CLOUD_MAIL_PASSWORD: ${{ secrets.CLOUD_MAIL_PASSWORD }}
+          RESIN_URL: ${{ secrets.RESIN_URL }}
+          RESIN_ADMIN_TOKEN: ${{ secrets.RESIN_ADMIN_TOKEN }}
+        run: python scripts/check-services.py
       - name: Register, export and synchronize to Resin
         id: task
         if: github.event_name == 'schedule' || !inputs.check_only
@@ -89,10 +109,14 @@ jobs:
         if: always()
         env:
           CHECK_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.check_only }}
+          CHECK_SERVICES: ${{ github.event_name == 'workflow_dispatch' && inputs.check_services }}
           TASK_OUTCOME: ${{ steps.task.outcome }}
         run: |
           if [ "$CHECK_ONLY" = true ]; then
             echo '本次仅检查原生运行环境，未执行注册或 Resin 同步。' >> "$GITHUB_STEP_SUMMARY"
+            if [ "$CHECK_SERVICES" = true ]; then
+              echo '另已执行邮箱与 Resin 连通性检查，结果见对应步骤。' >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             echo "本次账号任务状态：$TASK_OUTCOME。详情见任务日志。" >> "$GITHUB_STEP_SUMMARY"
             echo '本工作流不保存账号或节点附件，临时输出随运行环境销毁。' >> "$GITHUB_STEP_SUMMARY"

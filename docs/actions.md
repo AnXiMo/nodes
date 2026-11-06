@@ -20,11 +20,15 @@
 
 默认合并到 Resin 的 `nodes` 专用本地订阅。修改名称时，在同一设置页的 **Variables** 中添加 `RESIN_SUBSCRIPTION_NAME`，详见 [Resin 同步规则](usage.md#resin-自动导入)。已有订阅的节点会保留并去重。
 
+可设置 `MAIL_PROVIDER=instant_mail` 和 `NODES_COUNT=3`。定时任务读取 `NODES_COUNT`（默认3）；手动任务使用运行表单的数量输入。浏览器由固定提交版本的 setup-chrome Action 安装 Chrome for Testing，并通过 `BROWSER_PATH` 传入应用与浏览器检查。
+
 ## 首次检查与手动运行
 
 1. 打开仓库 **Actions → Daily Nodes**。Fork 后如提示工作流未启用，先启用工作流。
 2. 点击 **Run workflow**，保留勾选“仅检查运行环境”，执行一次环境检查。此模式无需 Secrets，只验证安装、命令入口、虚拟显示器和本地页面中的浏览器扩展，不访问邮箱、ProxyScrape 或 Resin。
 3. 配置好 Secrets 后，取消勾选“仅检查运行环境”，数量保留为 `3`，再手动运行一次实际任务。
+
+也可以先保留“仅检查运行环境”，同时勾选“另外检查 Gmail 邮箱及 Resin 连接”。这会创建一个 Gmail 收信地址并检查邮件列表，使用管理令牌读取 Resin 订阅列表；不注册 ProxyScrape、不发送验证码、不写入 Resin 订阅。
 
 环境检查通过不代表真实注册一定成功。浏览器验证、试用资格和代理数量仍取决于外部服务；实际任务日志会保留失败阶段。
 
@@ -36,7 +40,7 @@
 - 尝试 **3 个账号**，串行执行，每个任务只尝试一次。实际成功数量以日志为准。
 - 批量任务结束后统一合并同步 Resin。部分账号失败时，其余成功导出的节点仍会同步，整个作业保持失败状态。
 - 同一仓库的每日任务串行运行，避免定时任务和手动任务互相覆盖订阅。
-- 手动实际运行可调整数量；定时任务固定为 3。作业最长运行 30 分钟。
+- 手动实际运行可调整数量；定时任务默认3，可用 `NODES_COUNT` 变量修改。作业最长运行30分钟。
 
 GitHub 定时任务可能延迟，高负载时可能丢弃排队任务；公开仓库连续 60 天无活动时，定时工作流会被自动停用。21:00 是计划触发时间，并非准点保证。[GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 

@@ -1,11 +1,13 @@
 """Offline regression: detect a challenge iframe inside a closed shadow root."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 
 from DrissionPage import Chromium
 
 from nodes.browser import _read_state, browser_options
+from nodes.config import load_config
 
 PAGE = b"""<!doctype html><title>Closed shadow challenge fixture</title>
 <input type="hidden" name="cf-turnstile-response" value="">
@@ -42,7 +44,8 @@ def main():
     Thread(target=server.serve_forever, daemon=True).start()
     browser = None
     try:
-        browser = Chromium(browser_options(hidden=True))
+        config = load_config(Path.cwd())
+        browser = Chromium(browser_options(hidden=True, browser_path=config["browser_path"]))
         tab = browser.latest_tab
         tab.get(f"http://127.0.0.1:{server.server_port}/")
         assert tab.title == "Closed shadow challenge fixture"

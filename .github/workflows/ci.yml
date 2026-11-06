@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE: ghcr.io/dnslin/nodes
+  IMAGE: ghcr.io/anximo/nodes
 
 jobs:
   test:

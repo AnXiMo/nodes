@@ -1,12 +1,14 @@
 """Offline browser smoke: localhost page, headed Chromium, bundled extension."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 from time import sleep
 
 from DrissionPage import Chromium
 
 from nodes.browser import browser_options
+from nodes.config import load_config
 
 
 class SmokePage(BaseHTTPRequestHandler):
@@ -36,7 +38,8 @@ def main():
     Thread(target=server.serve_forever, daemon=True).start()
     browser = None
     try:
-        options = browser_options(hidden=True)
+        config = load_config(Path.cwd())
+        options = browser_options(hidden=True, browser_path=config["browser_path"])
         browser = Chromium(options)
         tab = browser.latest_tab
         tab.get(f"http://127.0.0.1:{server.server_port}/")
