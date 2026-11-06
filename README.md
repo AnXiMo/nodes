@@ -8,7 +8,7 @@ Gmail 协议移植自 AnXiMo 的 `Instant_mail/instant_mail_api.py`，无需启�
 [![Daily](https://github.com/dnslin/nodes/actions/workflows/daily.yml/badge.svg)](https://github.com/dnslin/nodes/actions/workflows/daily.yml)
 [![GHCR](https://img.shields.io/badge/GHCR-amd64%20%7C%20arm64-2496ED?logo=docker&logoColor=white)](https://github.com/dnslin/nodes/pkgs/container/nodes)
 
-- **每日自动运行**：GitHub Actions 直接运行 Python，无需为 Nodes 单独部署服务器。
+- **手动运行**：GitHub Actions 直接运行 Python，无需为 Nodes 单独部署服务器；定时触发当前关闭。
 - **Resin 同步**：所有账号的节点合并到一个专用订阅，保留已有节点并去重。
 - **服务器部署**：Docker 内置浏览器和虚拟显示器，账号与节点自动取回本机。
 
@@ -16,7 +16,7 @@ Gmail 协议移植自 AnXiMo 的 `Instant_mail/instant_mail_api.py`，无需启�
 
 1. Fork 本仓库，按[配置指南](docs/actions.md#配置)添加 Resin 的 2 项 Secrets；默认 Gmail 无需邮箱 Secrets。
 2. 在 **Actions → Daily Nodes** 中启用工作流，先运行默认的环境检查，再取消“仅检查运行环境”执行实际任务。
-3. 此后每天北京时间 **21:00** 尝试注册 **3 个账号**，导出后自动同步 Resin。
+3. 手动填写数量执行，导出后自动同步 Resin。当前未配置定时触发。
 
 本方式不保存账号或节点附件，Resin 需要保持在线。定时触发可能延迟；完整运行规则见[每日运行指南](docs/actions.md)。
 

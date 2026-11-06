@@ -1,9 +1,7 @@
 name: Daily Nodes
 
 on:
-  schedule:
-    # UTC 13:00 = Asia/Shanghai 21:00.
-    - cron: '0 13 * * *'
+  # Scheduled runs are disabled; enable only when explicitly requested.
   workflow_dispatch:
     inputs:
       check_only:
@@ -15,7 +13,7 @@ on:
         type: boolean
         default: false
       count:
-        description: '本次尝试的账号数量（定时任务默认 3，可用 NODES_COUNT 变量调整）'
+        description: '本次手动尝试的账号数量'
         type: string
         default: '3'
 
@@ -32,12 +30,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      NODES_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.count || vars.NODES_COUNT || '3' }}
+      NODES_COUNT: ${{ inputs.count }}
       MAIL_PROVIDER: ${{ vars.MAIL_PROVIDER || 'instant_mail' }}
     steps:
       - uses: actions/checkout@v7
       - name: Check required configuration
-        if: github.event_name == 'schedule' || !inputs.check_only || inputs.check_services
+        if: ${{ !inputs.check_only || inputs.check_services }}
         env:
           CLOUD_MAIL_URL: ${{ secrets.CLOUD_MAIL_URL }}
           CLOUD_MAIL_EMAIL: ${{ secrets.CLOUD_MAIL_EMAIL }}
@@ -96,7 +94,7 @@ jobs:
         run: python scripts/check-services.py
       - name: Register, export and synchronize to Resin
         id: task
-        if: github.event_name == 'schedule' || !inputs.check_only
+        if: ${{ !inputs.check_only }}
         env:
           CLOUD_MAIL_URL: ${{ secrets.CLOUD_MAIL_URL }}
           CLOUD_MAIL_EMAIL: ${{ secrets.CLOUD_MAIL_EMAIL }}

@@ -1,4 +1,4 @@
-# GitHub Actions 每日运行
+# GitHub Actions 手动运行
 
 [返回首页](../README.md)
 
@@ -20,7 +20,7 @@
 
 默认合并到 Resin 的 `nodes` 专用本地订阅。修改名称时，在同一设置页的 **Variables** 中添加 `RESIN_SUBSCRIPTION_NAME`，详见 [Resin 同步规则](usage.md#resin-自动导入)。已有订阅的节点会保留并去重。
 
-可设置 `MAIL_PROVIDER=instant_mail` 和 `NODES_COUNT=3`。定时任务读取 `NODES_COUNT`（默认3）；手动任务使用运行表单的数量输入。浏览器由固定提交版本的 setup-chrome Action 安装 Chrome for Testing，并通过 `BROWSER_PATH` 传入应用与浏览器检查。
+设置 `MAIL_PROVIDER=instant_mail`。任务使用运行表单的数量输入；当前已移除 `schedule`，不会自动运行。浏览器由固定提交版本的 setup-chrome Action 安装 Chrome for Testing，并通过 `BROWSER_PATH` 传入应用与浏览器检查。
 
 ## 首次检查与手动运行
 
@@ -34,17 +34,17 @@
 
 缺少必需的 Secret 时，任务会在注册前报出配置名称。任务成功后，节点自动合并到 Resin，无需下载文件再导入。
 
-## 每日执行规则
+## 执行规则
 
-- 每天北京时间 **21:00** 运行，工作流对应 UTC `13:00`。
-- 尝试 **3 个账号**，串行执行，每个任务只尝试一次。实际成功数量以日志为准。
+- 仅手动触发；当前定时执行已关闭。
+- 表单默认3个账号，首次验证可填写1；串行执行，每个任务只尝试一次。实际成功数量以日志为准。
 - 批量任务结束后统一合并同步 Resin。部分账号失败时，其余成功导出的节点仍会同步，整个作业保持失败状态。
 - 同一仓库的每日任务串行运行，避免定时任务和手动任务互相覆盖订阅。
-- 手动实际运行可调整数量；定时任务默认3，可用 `NODES_COUNT` 变量修改。作业最长运行30分钟。
+- 手动实际运行可调整数量；作业最长运行30分钟。
 
 GitHub 定时任务可能延迟，高负载时可能丢弃排队任务；公开仓库连续 60 天无活动时，定时工作流会被自动停用。21:00 是计划触发时间，并非准点保证。[GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 
-需要修改每日时间或数量时，编辑 [`.github/workflows/daily.yml`](../.github/workflows/daily.yml) 中的定时表达式和数量默认值。停止每日任务可在 Actions 的工作流菜单中选择 **Disable workflow**。
+以后需要定时运行时，再向 [`.github/workflows/daily.yml`](../.github/workflows/daily.yml) 显式添加 `schedule`；当前仅保留 `workflow_dispatch`。
 
 ## 输出与失败处理
 
