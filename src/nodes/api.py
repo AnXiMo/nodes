@@ -1,5 +1,6 @@
 """ProxyScrape account and trial HTTP contracts."""
 
+import json
 from urllib.parse import urlsplit
 
 import requests
@@ -31,23 +32,40 @@ HEADERS = {
 def register(email, password, turnstile_token):
     s = requests.Session()
     s.headers.update(HEADERS)
-    r = s.post(
-        PS_REGISTER,
-        data={
-            "email": email,
-            "password": password,
-            "cf_turnstile_token": turnstile_token,
-        },
-        timeout=30,
-    )
-    log(f"注册响应 HTTP {r.status_code}")
-    r.raise_for_status()
-    data = r.json()
-    token = data.get("access_token")
-    if not token:
-        raise RuntimeError("注册未返回 access_token")
-    log("注册成功，已取得访问凭据")
-    return s, token, data.get("userData", {})
+    try:
+        r = s.post(
+            PS_REGISTER,
+            data={
+                "email": email,
+                "password": password,
+                "cf_turnstile_token": turnstile_token,
+            },
+            timeout=30,
+        )
+        log(f"注册响应 HTTP {r.status_code}")
+        if not r.ok:
+            try:
+                body = r.json()
+            except ValueError:
+                body = None
+            detail = "; ".join(
+                f"{key}={json.dumps(body[key], ensure_ascii=False)}"
+                for key in ("error", "errors", "message", "info")
+                if isinstance(body, dict) and body.get(key)
+            ) or "服务端未返回可用的 JSON 错误详情"
+            for secret in (email, password, turnstile_token):
+                if secret:
+                    detail = detail.replace(secret, "***")
+            raise RuntimeError(f"ProxyScrape 注册 HTTP {r.status_code}: {detail[:800]}")
+        data = r.json()
+        token = data.get("access_token")
+        if not token:
+            raise RuntimeError("注册未返回 access_token")
+        log("注册成功，已取得访问凭据")
+        return s, token, data.get("userData", {})
+    except Exception:
+        s.close()
+        raise
 
 
 def resend_code(session, access_token):
