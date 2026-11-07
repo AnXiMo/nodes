@@ -1,5 +1,6 @@
 """Cross-platform Chromium configuration, without launching a browser."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -51,7 +52,7 @@ def test_visible_browser_does_not_move_offscreen(linux_display):
 
 def test_missing_extension_is_reported(linux_display, tmp_path):
     missing = tmp_path / "missing-extension"
-    with pytest.raises(FileNotFoundError, match=str(missing)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing))):
         browser_options(extension_path=missing)
 
 

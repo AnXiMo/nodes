@@ -15,6 +15,9 @@ proxyscrape_token.json
 # Generated accounts and proxy credentials
 account/
 node/
+.nodes-vault-state.json
+accounts.vault
+*.vault.key
 
 # Runtime artifacts
 *.log

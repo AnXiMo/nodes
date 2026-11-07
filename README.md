@@ -14,11 +14,11 @@ Gmail 协议移植自 AnXiMo 的 `Instant_mail/instant_mail_api.py`，无需启�
 
 ## GitHub Actions
 
-1. Fork 本仓库，按[配置指南](docs/actions.md#配置)添加 Resin 的 2 项 Secrets；默认 Gmail 无需邮箱 Secrets。
+1. Fork 本仓库，按[配置指南](docs/actions.md#配置)添加 Resin 的 2 项 Secrets 以及 `NODES_ACCOUNT_BACKUP_KEY`；默认 Gmail 无需邮箱 Secrets。
 2. 在 **Actions → Daily Nodes** 中启用工作流，先运行默认的环境检查，再取消“仅检查运行环境”执行实际任务。
 3. 手动填写数量执行，导出后自动同步 Resin。当前未配置定时触发。
 
-本方式不保存账号或节点附件，Resin 需要保持在线。定时触发可能延迟；完整运行规则见[每日运行指南](docs/actions.md)。
+账号资料加密长期保存到 `account-vault` 分支；网站密码、会话和邮箱恢复资料可跨运行使用。Resin 需要保持在线；完整运行规则见[手动运行指南](docs/actions.md)。
 
 ## Docker / 本机运行
 
@@ -34,7 +34,7 @@ docker compose build
 ./scripts/run-docker.sh --count 1 --threads 1 --attempts 1 --hide-browser
 ```
 
-账号保存在 `account/`，代理保存在 `node/`，无需进入容器。`--check-mail` 会创建一个 Gmail 邮箱并检查收信接口。已有账号可用 `./scripts/run-docker.sh --resume EMAIL` 继续处理，包括带有 `mailbox_id` 的 Gmail 未完成验证账号。Linux 直接安装、配置字段和故障处理见[使用指南](docs/usage.md)。
+账号保存在 `account/`，代理保存在 `node/`，无需进入容器。`--check-mail` 会创建一个 Gmail 邮箱并检查收信接口。已有账号可用 `./scripts/run-docker.sh --resume EMAIL` 继续处理，会话失效时使用保存的密码重登一次；`--resume-all` 恢复全部，`--login EMAIL` 用原网站密码登录。GitHub 任务通过 `NODES_ACCOUNT_BACKUP_KEY` 将账号加密长期保存到 `account-vault` 分支。Linux 直接安装、加密备份和故障处理见[使用指南](docs/usage.md)。
 
 试用资格、代理数量和验证服务是否接受请求由服务端决定；导出成功不代表每个代理都已通过连通性检查。
 
