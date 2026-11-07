@@ -9,7 +9,7 @@ from pathlib import Path
 
 from DrissionPage import ChromiumOptions
 
-from .api import PS_SIGNUP_PAGE
+from .api import PS_LOGIN_PAGE, PS_SIGNUP_PAGE
 from .config import DEFAULT_EXTENSION, load_config
 from .console import log
 
@@ -111,7 +111,7 @@ def _read_state(tab):
     return state
 
 
-def solve_turnstile(headless=False, timeout=120, config=None):
+def solve_turnstile(headless=False, timeout=120, config=None, *, page_url=PS_SIGNUP_PAGE):
     """等待站点原生验证组件，不创建重复 widget，超时保留实际阶段。"""
     from DrissionPage import Chromium
     from DrissionPage.errors import ContextLostError, ElementLostError
@@ -131,15 +131,24 @@ def solve_turnstile(headless=False, timeout=120, config=None):
     state = {}
     filled = False
     try:
-        log("浏览器打开 sign-up 页…")
-        tab.get(PS_SIGNUP_PAGE)
+        log("浏览器打开登录验证页…" if page_url == PS_LOGIN_PAGE else "浏览器打开 sign-up 页…")
+        tab.get(page_url)
         while time.monotonic() < deadline:
             try:
                 state = _read_state(tab)
                 if state.get("token"):
                     log(f"Turnstile 通过，token 长度={state['tokenLen']}")
                     return state["token"]
-                if not (state.get("ready") and state.get("hasApi")):
+                if page_url == PS_LOGIN_PAGE and state.get("ready") and not filled:
+                    # The email form may load the challenge API only after it opens.
+                    filled = bool(tab.run_js("""
+const button = [...document.querySelectorAll('button')]
+    .find(el => el.textContent.trim() === 'Continue with email');
+if (button) { button.click(); return true; }
+return false;
+"""))
+                    stage = "等待登录邮箱表单"
+                elif not (state.get("ready") and state.get("hasApi")):
                     stage = "等待页面及 Turnstile API"
                 elif not filled:
                     tab.run_js(_FILL_JS)

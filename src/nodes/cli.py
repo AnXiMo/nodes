@@ -1,13 +1,14 @@
 """The installed nodes command and local virtual-display startup."""
 
 import argparse
+import getpass
 import os
 import platform
 import shutil
 import sys
 from pathlib import Path
 
-from . import resin, workflow
+from . import account_backup, resin, workflow
 from .config import load_config
 from .console import log
 from .providers import create_mail, mail_provider
@@ -71,7 +72,15 @@ def main(argv=None):
     command = parser.add_mutually_exclusive_group()
     command.add_argument("--count", type=_positive_int, help="本轮注册数量；省略则进入交互模式")
     command.add_argument(
-        "--resume", metavar="EMAIL", help="恢复 Gmail 邮箱验证或继续已验证账号导出"
+        "--resume", metavar="EMAIL", help="恢复账号导出；会话失效时使用已保存密码重登"
+    )
+    command.add_argument("--resume-all", action="store_true", help="逐个恢复所有已保存账号")
+    command.add_argument(
+        "--login", metavar="EMAIL", help="用原密码重新登录；从提示或环境变量读取密码"
+    )
+    command.add_argument("--backup-accounts", metavar="FILE", help="将账号及邮箱凭据加密备份到文件")
+    command.add_argument(
+        "--restore-accounts", metavar="FILE", help="恢复加密账号备份；不覆盖不同本地文件"
     )
     parser.add_argument("--threads", type=_positive_int, default=3, help="并发数，默认 3，最多 8")
     mode = parser.add_mutually_exclusive_group()
@@ -93,6 +102,14 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     try:
+        if args.backup_accounts:
+            count = account_backup.backup_file(Path.cwd(), args.backup_accounts)
+            log(f"已加密备份 {count} 个账号文件")
+            return 0
+        if args.restore_accounts:
+            count = account_backup.restore(Path(args.restore_accounts).read_bytes(), Path.cwd())
+            log(f"已恢复 {count} 个账号文件")
+            return 0
         config = load_config(Path.cwd())
         resin_enabled = False
         if not args.check_mail:
@@ -100,9 +117,22 @@ def main(argv=None):
         if args.sync_resin:
             resin.sync(config)
             return 0
-        if args.resume:
-            success = workflow.resume_account(args.resume, mail_timeout=args.mail_timeout)
-            if success and resin_enabled:
+        if args.resume or args.resume_all or args.login:
+            options = {"mail_timeout": args.mail_timeout, "config": config,
+                       "hidden": args.hidden, "challenge_timeout": args.challenge_timeout}
+            if args.login:
+                password = os.environ.get("NODES_ACCOUNT_PASSWORD", "")
+                if not password and sys.stdin.isatty():
+                    password = getpass.getpass("ProxyScrape 原账号密码：")
+                if not password:
+                    raise ValueError("请交互输入原密码，或设置 NODES_ACCOUNT_PASSWORD")
+                success = workflow.resume_account(args.login, force_login=True,
+                                                  password=password, **options)
+            elif args.resume_all:
+                success = workflow.resume_all(**options)
+            else:
+                success = workflow.resume_account(args.resume, **options)
+            if resin_enabled and (success or args.resume_all):
                 resin.sync(config, skip_empty=True)
             return 0 if success else 1
         selected = mail_provider(config)
@@ -119,7 +149,7 @@ def main(argv=None):
                 mail.session.close()
             return 0
         if not args.count and not sys.stdin.isatty():
-            parser.error("非交互环境必须指定 --count、--resume、--check-mail 或 --sync-resin")
+            parser.error("非交互环境必须指定操作；使用 --help 查看注册、登录、恢复和备份命令")
         relaunch_with_display(argv)
         kwargs = {
             "max_attempts": args.attempts,

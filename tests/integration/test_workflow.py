@@ -245,7 +245,10 @@ def test_one_round_creates_mailbox_verifies_and_persists_exports(
     assert cli.main(["--count", "1", "--threads", "1", "--attempts", "1"]) == 0
     records = list((tmp_path / "account").glob("*.jsonl"))
     assert len(records) == 1
-    record = json.loads(records[0].read_text())
+    snapshots = [json.loads(line) for line in records[0].read_text().splitlines()]
+    assert snapshots[0]["password"] == snapshots[-1]["password"]
+    assert snapshots[0]["verified"] is False
+    record = snapshots[-1]
     assert record["verified"] is True
     assert record["proxy_count"] == 2
     assert record["email"] == state["accounts"][0]["email"]

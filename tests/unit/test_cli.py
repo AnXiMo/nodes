@@ -197,3 +197,13 @@ def test_sync_resin_is_mutually_exclusive_with_other_commands(other):
     with pytest.raises(SystemExit) as error:
         cli.main(["--sync-resin", *other])
     assert error.value.code == 2
+
+
+def test_resume_all_syncs_partial_success(monkeypatch):
+    config = {"resin_url": "https://resin.example.org", "resin_admin_token": "admin"}
+    monkeypatch.setattr(cli, "load_config", lambda path: config)
+    monkeypatch.setattr(workflow, "resume_all", lambda **kwargs: False)
+    calls = []
+    monkeypatch.setattr(cli.resin, "sync", lambda cfg, **kw: calls.append(kw))
+    assert cli.main(["--resume-all"]) == 1
+    assert calls == [{"skip_empty": True}]

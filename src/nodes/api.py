@@ -1,5 +1,6 @@
 """ProxyScrape account and trial HTTP contracts."""
 
+import ipaddress
 import json
 from urllib.parse import urlsplit
 
@@ -10,10 +11,12 @@ from .console import log
 # ProxyScrape dashboard
 BASE_URL = "https://dashboard.proxyscrape.com"
 PS_REGISTER = f"{BASE_URL}/v2/v4/account/auth/register"
+PS_LOGIN = f"{BASE_URL}/v2/v4/account/auth/login"
 PS_ME = f"{BASE_URL}/v2/v4/account/auth/me"
 PS_VERIFY_EMAIL = f"{BASE_URL}/v2/v4/account/verify-email"
 PS_RESEND = f"{BASE_URL}/v2/v4/account/reset-verification-code"
 PS_SIGNUP_PAGE = f"{BASE_URL}/v2/sign-up"
+PS_LOGIN_PAGE = f"{BASE_URL}/v2/login"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -29,10 +32,82 @@ HEADERS = {
 }
 
 
+class SessionExpired(RuntimeError):
+    """The account API rejected the saved session, not the proxy subscription."""
+
+
+class LoginChallengeRequired(RuntimeError):
+    """The normal login form requires its native verification widget."""
+
+
+def login(session, email, password, turnstile_token=""):
+    """Sign in to an existing account; never register or request a password reset."""
+    try:
+        response = session.post(
+            PS_LOGIN,
+            headers={"Referer": PS_LOGIN_PAGE},
+            data={"email": email, "password": password, "cf_turnstile_token": turnstile_token},
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        # Exceptions may embed a prepared request. Do not echo supplied credentials.
+        raise RuntimeError("ProxyScrape 登录请求未完成，请检查连接后重试") from exc
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    if not response.ok or body.get("success") is False:
+        detail = json.dumps(
+            {k: body[k] for k in ("error", "errors", "message", "info") if k in body},
+            ensure_ascii=False,
+        )
+        for secret in (email, password, turnstile_token):
+            if secret:
+                detail = detail.replace(secret, "***").replace(
+                    json.dumps(secret, ensure_ascii=False)[1:-1], "***"
+                )
+        if any(word in detail.lower() for word in ("turnstile", "captcha", "challenge")):
+            raise LoginChallengeRequired("ProxyScrape 登录需要完成页面验证")
+        raise RuntimeError(f"ProxyScrape 登录 HTTP {response.status_code}: {detail[:500]}")
+    token = body.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise RuntimeError("ProxyScrape 登录没有返回 access_token，可能还需要额外验证")
+    return token, body.get("userData") or {}
+
+
+def report_registration_egress(session):
+    """Log what a public observer sees, without claiming the provider sees the same IP."""
+    try:
+        response = session.get(
+            "https://api.ipify.org?format=json", timeout=(3, 5), allow_redirects=False,
+        )
+        try:
+            if response.status_code != 200:
+                raise ValueError("IP observer did not return HTTP 200")
+            body = response.json()
+            raw = body.get("ip") if isinstance(body, dict) else None
+            if not isinstance(raw, str) or "%" in raw:
+                raise ValueError("IP observer returned no plain IP address")
+            address = ipaddress.ip_address(raw.strip())
+            if not address.is_global:
+                raise ValueError("IP observer returned a non-public IP address")
+        finally:
+            response.close()
+    except (requests.RequestException, TypeError, ValueError):
+        # Proxy errors and observer bodies can contain credentials; do not echo them.
+        log("注册前出口探测：未知（api.ipify.org 探测失败；继续原注册流程）")
+        return None
+    log(f"注册前出口探测 IP：{address}（api.ipify.org；不代表注册服务观测值）")
+    return str(address)
+
+
 def register(email, password, turnstile_token):
     s = requests.Session()
     s.headers.update(HEADERS)
     try:
+        report_registration_egress(s)
         r = s.post(
             PS_REGISTER,
             data={
@@ -89,6 +164,8 @@ def verify_email(session, access_token, code):
 
 def whoami(session, access_token):
     r = session.post(PS_ME, headers={"Authorization": f"Bearer {access_token}"}, timeout=30)
+    if r.status_code == 401:
+        raise SessionExpired("ProxyScrape 登录会话已失效")
     r.raise_for_status()
     return r.json()
 
@@ -109,6 +186,8 @@ def fetch_trial_proxies(session, access_token):
         except requests.RequestException as exc:
             raise RuntimeError(f"{context} HTTP 未收到响应：{exc}") from exc
         context += f" HTTP {response.status_code}"
+        if response.status_code == 401:
+            raise SessionExpired("ProxyScrape 登录会话已失效")
         try:
             body = response.json()
         except ValueError as exc:

@@ -121,7 +121,10 @@ def test_mail_failure_is_saved_and_returns_failure(monkeypatch, tmp_path):
     )
     assert result["verified"] is False
     assert result["error"] == "mail timed out"
-    assert json.loads(account.read_text())["access_token"] == "access-token"
+    records = [json.loads(line) for line in account.read_text().splitlines()]
+    assert records[0]["password"] == records[-1]["password"]
+    assert records[0]["verified"] is False
+    assert records[-1]["access_token"] == "access-token"
     assert not (tmp_path / "proxies.txt").exists()
 
 
@@ -156,7 +159,10 @@ def test_verification_http_failure_saves_account_without_export(monkeypatch, tmp
     )
     assert result["error"] == f"{endpoint}: HTTP 403"
     assert result["verified"] is False
-    assert json.loads(account.read_text())["access_token"] == "access-token"
+    records = [json.loads(line) for line in account.read_text().splitlines()]
+    assert records[0]["password"] == records[-1]["password"]
+    assert records[0]["verified"] is False
+    assert records[-1]["access_token"] == "access-token"
     assert not (tmp_path / "proxies.txt").exists()
     assert session.closed is True
 

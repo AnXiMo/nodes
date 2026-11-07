@@ -136,7 +136,28 @@ py -m venv .venv
 | `--mail-timeout N` | 等待新验证邮件的秒数 | 180 |
 | `--challenge-timeout N` | 浏览器验证超时秒数 | 120 |
 
-`--count`、`--resume`、`--check-mail`、`--sync-resin` 互斥。`--resume` 不启动浏览器、不注册新账号；它要求已保存的 ProxyScrape 访问凭据仍然有效。Instant Mail 账号若尚未完成验证，会使用记录里的 `mailbox_id` 恢复同一邮箱，重新发送验证码并等待新邮件，遵守 `--mail-timeout`；已验证账号直接导出。Cloud Mail 旧账号仍要求已验证。`--sync-resin` 只需要 Resin 配置和已有节点文件。
+`--count`、`--resume`、`--resume-all`、`--login`、`--backup-accounts`、`--restore-accounts`、`--check-mail`、`--sync-resin` 互斥。恢复已有账号不注册新账号；会话失效时使用保存的网站密码重登一次，只有登录要求页面验证时才启动浏览器。Instant Mail 账号若尚未完成验证，会使用记录里的 `mailbox_id` 恢复同一邮箱，重新发送验证码并等待新邮件，遵守 `--mail-timeout`；已验证账号直接导出。Cloud Mail 旧账号仍要求已验证。`--sync-resin` 只需要 Resin 配置和已有节点文件。
+
+## 账号密码保留与重登
+
+```bash
+nodes --resume saved@example.org  # 有效会话直接导出，401 时用保存的密码重登一次
+nodes --resume-all               # 依次恢复所有已保存账号，失败账号仍保留
+nodes --login saved@example.org  # 隐藏提示输入原网站密码，也可导入已有账号
+```
+
+非交互登录从进程环境变量 `NODES_ACCOUNT_PASSWORD` 读取密码，不支持明文密码命令行参数。密码只有在登录成功后才写入账号文件；输入错误不会覆盖旧密码或会话。重登成功的新会话先保存，再查询代理套餐。套餐过期、账号停用或缺少原密码仍会失败，不会通过注册新账号或重置密码替代恢复。
+
+本机 `account/` 含明文凭据，应只允许自己读取并单独备份。Linux 新写账号文件权限为 `0600`；Windows 请使用用户目录的访问权限。Instant Mail 的 `mailbox_id` 同样是敏感恢复资料。公开仓库只保存密文：
+
+```bash
+# 在当前进程安全提供 NODES_ACCOUNT_BACKUP_KEY（Fernet 密钥），不放入命令行或 Git
+nodes --backup-accounts accounts.vault
+# 在空工作目录中，用同一密钥恢复
+nodes --restore-accounts /path/to/accounts.vault
+```
+
+备份会保留所有账号历史及邮箱资料；恢复先校验密文和全部路径，遇到不同的已有文件则拒绝覆盖。密钥生成和 GitHub 长期保存方式见[Actions 指南](actions.md)。本机备份/恢复从**进程环境**读取密钥，不读取 `.env`。如果旧工作流从未留存密码，本功能不能重建它；代理密码与网站登录密码不同。
 
 一轮命令行任务结束后退出。全部任务导出且已启用的 Resin 同步成功返回 0；存在未完成任务或同步失败返回 1；参数错误返回 2；程序捕获到键盘中断时返回 130。
 

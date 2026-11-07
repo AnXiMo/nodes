@@ -12,10 +12,22 @@ on:
         description: '另外检查 Gmail 邮箱及 Resin 连接，不注册 ProxyScrape 账号'
         type: boolean
         default: false
+      check_backup:
+        description: '另外验证加密账号备份读写，不登录或注册账号'
+        type: boolean
+        default: false
       count:
         description: '本次手动尝试的账号数量'
         type: string
         default: '3'
+      recover_accounts:
+        description: '只重登并恢复已保存账号，不注册新账号（须关闭 check_only）'
+        type: boolean
+        default: false
+      recover_email:
+        description: '仅恢复这个已保存账号；留空则恢复全部'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -27,6 +39,8 @@ concurrency:
 
 jobs:
   daily:
+    permissions:
+      contents: write # Only encrypted account data is committed to account-vault.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -42,12 +56,21 @@ jobs:
           CLOUD_MAIL_PASSWORD: ${{ secrets.CLOUD_MAIL_PASSWORD }}
           RESIN_URL: ${{ secrets.RESIN_URL }}
           RESIN_ADMIN_TOKEN: ${{ secrets.RESIN_ADMIN_TOKEN }}
+          NODES_ACCOUNT_BACKUP_KEY: ${{ secrets.NODES_ACCOUNT_BACKUP_KEY }}
+          CHECK_ONLY: ${{ inputs.check_only }}
+          RECOVER_ACCOUNTS: ${{ inputs.recover_accounts }}
         run: |
           missing=0
           required=(RESIN_URL RESIN_ADMIN_TOKEN)
+          if [ "$CHECK_ONLY" != true ]; then
+            required+=(NODES_ACCOUNT_BACKUP_KEY)
+          fi
           case "$MAIL_PROVIDER" in
             instant_mail) ;;
-            cloud_mail) required+=(CLOUD_MAIL_URL CLOUD_MAIL_EMAIL CLOUD_MAIL_PASSWORD) ;;
+            cloud_mail)
+              if [ "$RECOVER_ACCOUNTS" != true ]; then
+                required+=(CLOUD_MAIL_URL CLOUD_MAIL_EMAIL CLOUD_MAIL_PASSWORD)
+              fi ;;
             *) echo '::error::MAIL_PROVIDER must be instant_mail or cloud_mail'; exit 1 ;;
           esac
           for name in "${required[@]}"; do
@@ -92,7 +115,24 @@ jobs:
           RESIN_URL: ${{ secrets.RESIN_URL }}
           RESIN_ADMIN_TOKEN: ${{ secrets.RESIN_ADMIN_TOKEN }}
         run: python scripts/check-services.py
-      - name: Register, export and synchronize to Resin
+      - name: Check encrypted account backup without account activity
+        if: ${{ inputs.check_only && inputs.check_backup }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NODES_ACCOUNT_BACKUP_KEY: ${{ secrets.NODES_ACCOUNT_BACKUP_KEY }}
+        run: |
+          python -m nodes.github_vault restore
+          python -m nodes.github_vault save
+          verify_dir=$(mktemp -d)
+          python -m nodes.github_vault restore --root "$verify_dir"
+      - name: Restore encrypted account vault
+        id: restore
+        if: ${{ !inputs.check_only }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NODES_ACCOUNT_BACKUP_KEY: ${{ secrets.NODES_ACCOUNT_BACKUP_KEY }}
+        run: python -m nodes.github_vault restore
+      - name: Register or recover, export and synchronize to Resin
         id: task
         if: ${{ !inputs.check_only }}
         env:
@@ -102,7 +142,30 @@ jobs:
           RESIN_URL: ${{ secrets.RESIN_URL }}
           RESIN_ADMIN_TOKEN: ${{ secrets.RESIN_ADMIN_TOKEN }}
           RESIN_SUBSCRIPTION_NAME: ${{ vars.RESIN_SUBSCRIPTION_NAME || 'nodes' }}
-        run: nodes --count "$NODES_COUNT" --threads 1 --attempts 1 --hide-browser
+          GITHUB_TOKEN: ${{ github.token }}
+          NODES_ACCOUNT_BACKUP_KEY: ${{ secrets.NODES_ACCOUNT_BACKUP_KEY }}
+          NODES_ACCOUNT_BACKUP_GITHUB: '1'
+          RECOVER_ACCOUNTS: ${{ inputs.recover_accounts }}
+          RECOVER_EMAIL: ${{ inputs.recover_email }}
+        run: |
+          if [ "$RECOVER_ACCOUNTS" = true ]; then
+            if [ -n "$RECOVER_EMAIL" ]; then
+              nodes --resume "$RECOVER_EMAIL" --hide-browser
+            else
+              nodes --resume-all --hide-browser
+            fi
+          else
+            if [ -n "$RECOVER_EMAIL" ]; then
+              echo '::error::recover_email requires recover_accounts=true'; exit 1
+            fi
+            nodes --count "$NODES_COUNT" --threads 1 --attempts 1 --hide-browser
+          fi
+      - name: Save encrypted account vault even after task failure
+        if: ${{ always() && steps.restore.outcome == 'success' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NODES_ACCOUNT_BACKUP_KEY: ${{ secrets.NODES_ACCOUNT_BACKUP_KEY }}
+        run: python -m nodes.github_vault save
       - name: Run summary
         if: always()
         env:
@@ -117,5 +180,5 @@ jobs:
             fi
           else
             echo "本次账号任务状态：$TASK_OUTCOME。详情见任务日志。" >> "$GITHUB_STEP_SUMMARY"
-            echo '本工作流不保存账号或节点附件，临时输出随运行环境销毁。' >> "$GITHUB_STEP_SUMMARY"
+            echo '账号密码、会话及邮箱恢复资料经加密保存到 account-vault 分支；备份失败会标记运行失败。节点附件不公开上传。' >> "$GITHUB_STEP_SUMMARY"
           fi

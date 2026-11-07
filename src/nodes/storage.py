@@ -1,6 +1,7 @@
 """Account snapshots and proxy files stored in the working directory."""
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -33,9 +34,21 @@ def find_account(root, email):
         for line in reversed(path.read_text(encoding="utf-8").splitlines()):
             if line.strip():
                 record = json.loads(line)
-                if record.get("email") == email:
+                if str(record.get("email", "")).casefold() == email.casefold():
                     return path, record
     raise ValueError(f"在 {directory} 中没有找到已保存的账号 {email}")
+
+
+def account_emails(root):
+    """Find each saved account once without exposing its credentials."""
+    emails = {}
+    for path in sorted((Path(root) / "account").glob("accounts_*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                email = json.loads(line).get("email")
+                if isinstance(email, str) and email:
+                    emails[email.casefold()] = email
+    return list(emails.values())
 
 
 def _format_proxy_url(user, pwd, ip):
@@ -51,6 +64,14 @@ def save_proxies(user, pwd, proxies, path):
 
 
 def save_account(rec, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with _file_lock:
-        with open(path, "a", encoding="utf-8") as f:
+        descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(descriptor, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+    from .github_vault import checkpoint
+
+    checkpoint(path.parent.parent)
