@@ -34,7 +34,7 @@ docker compose build
 ./scripts/run-docker.sh --count 1 --threads 1 --attempts 1 --hide-browser
 ```
 
-账号保存在 `account/`，代理保存在 `node/`，无需进入容器。`--check-mail` 会创建一个 Gmail 邮箱并检查收信接口。已有账号可用 `./scripts/run-docker.sh --resume EMAIL` 继续处理，包括带有 `mailbox_id` 的 Gmail 未完成验证账号。Linux 直接安装、配置字段和故障处理见[使用指南](docs/usage.md)。
+账号保存在 `account/`，代理保存在 `node/`，无需进入容器。`--check-mail` 会创建一个 Gmail 邮箱并检查收信接口。已有账号可用 `./scripts/run-docker.sh --resume EMAIL` 继续处理，会话失效时使用保存的密码重登一次；`--resume-all` 恢复全部，`--login EMAIL` 用原网站密码登录。GitHub 任务通过 `NODES_ACCOUNT_BACKUP_KEY` 将账号加密长期保存到 `account-vault` 分支。Linux 直接安装、加密备份和故障处理见[使用指南](docs/usage.md)。
 
 试用资格、代理数量和验证服务是否接受请求由服务端决定；导出成功不代表每个代理都已通过连通性检查。
 

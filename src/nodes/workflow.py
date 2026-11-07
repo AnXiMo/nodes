@@ -1,5 +1,6 @@
 """Registration, recovery and concurrent export workflows."""
 
+import os
 import random
 import string
 import time
@@ -13,7 +14,14 @@ from .browser import solve_turnstile
 from .console import log, set_worker
 from .instant_mail import InstantMail
 from .providers import create_mail, mail_provider
-from .storage import find_account, new_round_files, resume_proxy_file, save_account, save_proxies
+from .storage import (
+    account_emails,
+    find_account,
+    new_round_files,
+    resume_proxy_file,
+    save_account,
+    save_proxies,
+)
 
 
 def complete_proxy_export(rec, session, node_file):
@@ -35,19 +43,73 @@ def complete_proxy_export(rec, session, node_file):
     log(f"已导出 {len(proxies)} 个代理，子账号 {account_id}")
 
 
-def resume_account(email, *, root=None, mail_timeout=180):
+def _redacted_error(exc, rec):
+    detail = str(exc)
+    for key in ("password", "access_token", "proxy_password", "mailbox_id"):
+        value = rec.get(key)
+        if isinstance(value, str) and value:
+            detail = detail.replace(value, "***")
+    return detail
+
+
+def _relogin(session, rec, *, config=None, hidden=True, challenge_timeout=120):
+    if not rec.get("password"):
+        raise ValueError("账号没有保存登录密码；请用 --login EMAIL 提供原密码")
+    try:
+        token, user = api.login(session, rec["email"], rec["password"])
+    except api.LoginChallengeRequired:
+        challenge = os.environ.get("NODES_LOGIN_CHALLENGE_TOKEN", "")
+        if not challenge:
+            from .login_challenge import obtain
+
+            challenge = obtain(config=config, hidden=hidden, timeout=challenge_timeout)
+        token, user = api.login(session, rec["email"], rec["password"], challenge)
+    rec.update(access_token=token, userData=user)
+
+
+def resume_account(email, *, root=None, mail_timeout=180, config=None, hidden=True,
+                   challenge_timeout=120, force_login=False, password=None):
     root = Path.cwd() if root is None else Path(root)
-    path, rec = find_account(root, email)
-    if not rec.get("access_token"):
-        raise ValueError(f"账号文件 {path} 中没有 {email} 的访问凭据")
+    try:
+        path, rec = find_account(root, email)
+    except ValueError:
+        if not force_login or not password:
+            raise
+        path, _ = new_round_files(root)
+        rec = {"email": email, "verified": False, "proxy_count": 0}
+    if password:
+        # The new password is saved only after the server accepts it.
+        rec = {**rec, "password": password}
     node_file = resume_proxy_file(root)
     log(f"继续已保存的账号 {email}，账号文件 {path}")
+    login_attempted = False
+    login_accepted = False
+
+    def relogin(session):
+        nonlocal login_attempted, login_accepted
+        if login_attempted:
+            raise api.SessionExpired("重新登录后的会话仍不可用，已停止重试")
+        login_attempted = True
+        _relogin(session, rec, config=config, hidden=hidden,
+                 challenge_timeout=challenge_timeout)
+        login_accepted = True
+        # Preserve the accepted password and new session even if export later fails.
+        save_account(rec, path)
+
     try:
         with requests.Session() as session:
             session.headers.update(api.HEADERS)
-            if rec.get("mail_provider") == "instant_mail":
+            if force_login or not rec.get("access_token"):
+                relogin(session)
                 current = api.whoami(session, rec["access_token"])
-                rec.update(verified=current.get("EmailVerified") is True, userData=current)
+            else:
+                try:
+                    current = api.whoami(session, rec["access_token"])
+                except api.SessionExpired:
+                    relogin(session)
+                    current = api.whoami(session, rec["access_token"])
+            rec.update(verified=current.get("EmailVerified") is True, userData=current)
+            if rec.get("mail_provider") == "instant_mail":
                 if current.get("EmailVerified") is not True:
                     mail = InstantMail(root=root)
                     try:
@@ -60,15 +122,33 @@ def resume_account(email, *, root=None, mail_timeout=180):
                         api.verify_email(session, rec["access_token"], code)
                     finally:
                         mail.close()
-            complete_proxy_export(rec, session, node_file)
+            try:
+                complete_proxy_export(rec, session, node_file)
+            except api.SessionExpired:
+                relogin(session)
+                complete_proxy_export(rec, session, node_file)
     except Exception as exc:
-        rec.update(error=str(exc), proxy_count=0)
+        detail = _redacted_error(exc, rec)
+        if force_login and password and not login_accepted:
+            log(f"[!] 登录未完成: {detail}")
+            return False
+        rec.update(error=detail, proxy_count=0)
         save_account(rec, path)
-        log(f"[!] 账号 {email} 导出失败: {exc}")
+        log(f"[!] 账号 {email} 导出失败: {detail}")
         return False
     save_account(rec, path)
     log(f"代理文件 → {node_file}")
     return True
+
+
+def resume_all(*, root=None, **kwargs):
+    root = Path.cwd() if root is None else Path(root)
+    emails = account_emails(root)
+    if not emails:
+        raise ValueError("没有可恢复的已保存账号，请先恢复账号备份")
+    outcomes = [resume_account(email, root=root, **kwargs) for email in emails]
+    log(f"账号恢复完成：{sum(outcomes)}/{len(outcomes)} 成功；失败记录及密码仍保留")
+    return all(outcomes)
 
 
 def _register_once(
@@ -103,17 +183,17 @@ def _register_once(
     try:
         if getattr(mail, "provider", None) == "instant_mail":
             rec.update(mail.mailbox_record(email))
-            # Preserve access/mailbox credentials even if verification is interrupted.
-            if account_file is not None:
-                save_account(rec, account_file)
+        # Persist credentials for every provider before verification or export starts.
+        if account_file is not None:
+            save_account(rec, account_file)
         api.resend_code(session, access_token)
         log("等待新验证邮件…")
         code = mail.wait_for_code(email, after_id=after_id, timeout=mail_timeout)
         api.verify_email(session, access_token, code)
         complete_proxy_export(rec, session, node_file)
     except Exception as exc:
-        rec["error"] = str(exc)
-        log(f"[!] 账号 {email} 后续处理失败: {exc}")
+        rec["error"] = _redacted_error(exc, rec)
+        log(f"[!] 账号 {email} 后续处理失败: {rec['error']}")
     finally:
         session.close()
     return rec

@@ -102,7 +102,7 @@ git push origin vX.Y.Z
 
 实现参考：[Docker 多架构构建](https://docs.docker.com/build/ci/github-actions/multi-platform/)、[GitHub Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。
 
-每日业务任务独立放在 [`.github/workflows/daily.yml`](../.github/workflows/daily.yml)，直接安装 Python 包并使用运行器自带浏览器，不构建或运行 Docker。默认的手动环境检查仅访问 localhost 页面；定时任务和关闭“仅检查运行环境”的手动运行会使用 Secrets 创建真实账号、导出并同步 Resin，详见[每日运行指南](actions.md)。每日工作流不上传业务文件。
+每日业务任务独立放在 [`.github/workflows/daily.yml`](../.github/workflows/daily.yml)，直接安装 Python 包并使用原生浏览器，不构建或运行 Docker。默认的手动环境检查仅访问 localhost 页面；关闭“仅检查运行环境”后按输入注册或恢复账号，再导出并同步 Resin。当前无定时触发。账号资料通过 `NODES_ACCOUNT_BACKUP_KEY` 加密保存到独立分支，参见[运行指南](actions.md)。测试只使用合成凭据和本地服务，不依赖真实注册或重登。
 
 ## 提交问题与改动
 
