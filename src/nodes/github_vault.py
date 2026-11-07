@@ -130,8 +130,8 @@ def save(root, *, client=None):
                         raise ValueError("账号备份缺失或覆盖了原有记录，已停止上传")
                 if old == files:
                     return len(files)
-            if not files:
-                return 0
+            # Initialize an empty encrypted vault too, so configuration can be
+            # verified before any account activity. An existing vault is never cleared.
             account_backup.private_write(root / VAULT_FILE, data)
             state["head"] = client.upload(data, state["head"])
             account_backup.private_write(root / STATE_FILE, json.dumps(state).encode())

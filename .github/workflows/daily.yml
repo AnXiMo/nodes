@@ -12,6 +12,10 @@ on:
         description: '另外检查 Gmail 邮箱及 Resin 连接，不注册 ProxyScrape 账号'
         type: boolean
         default: false
+      check_backup:
+        description: '另外验证加密账号备份读写，不登录或注册账号'
+        type: boolean
+        default: false
       count:
         description: '本次手动尝试的账号数量'
         type: string
@@ -111,6 +115,16 @@ jobs:
           RESIN_URL: ${{ secrets.RESIN_URL }}
           RESIN_ADMIN_TOKEN: ${{ secrets.RESIN_ADMIN_TOKEN }}
         run: python scripts/check-services.py
+      - name: Check encrypted account backup without account activity
+        if: ${{ inputs.check_only && inputs.check_backup }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NODES_ACCOUNT_BACKUP_KEY: ${{ secrets.NODES_ACCOUNT_BACKUP_KEY }}
+        run: |
+          python -m nodes.github_vault restore
+          python -m nodes.github_vault save
+          verify_dir=$(mktemp -d)
+          python -m nodes.github_vault restore --root "$verify_dir"
       - name: Restore encrypted account vault
         id: restore
         if: ${{ !inputs.check_only }}

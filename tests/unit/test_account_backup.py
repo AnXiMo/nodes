@@ -182,3 +182,15 @@ def test_vault_rejects_concurrent_writer(account):
     with pytest.raises(RuntimeError, match="concurrent"):
         github_vault.save(root, client=remote)
     assert len(remote.commits) == 2
+
+
+def test_empty_vault_can_be_verified_before_account_creation(account):
+    root, _, _ = account
+    empty = root / "empty"
+    remote = Remote()
+    assert github_vault.restore(empty, client=remote) == 0
+    assert github_vault.save(empty, client=remote) == 0
+    assert len(remote.commits) == 1
+    assert backup.unpack(remote.download(remote.head())) == {}
+    assert github_vault.restore(root / "new-run", client=remote) == 0
+    assert not (empty / "account").exists()
