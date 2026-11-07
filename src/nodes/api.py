@@ -1,5 +1,6 @@
 """ProxyScrape account and trial HTTP contracts."""
 
+import ipaddress
 import json
 from urllib.parse import urlsplit
 
@@ -76,10 +77,37 @@ def login(session, email, password, turnstile_token=""):
     return token, body.get("userData") or {}
 
 
+def report_registration_egress(session):
+    """Log what a public observer sees, without claiming the provider sees the same IP."""
+    try:
+        response = session.get(
+            "https://api.ipify.org?format=json", timeout=(3, 5), allow_redirects=False,
+        )
+        try:
+            if response.status_code != 200:
+                raise ValueError("IP observer did not return HTTP 200")
+            body = response.json()
+            raw = body.get("ip") if isinstance(body, dict) else None
+            if not isinstance(raw, str) or "%" in raw:
+                raise ValueError("IP observer returned no plain IP address")
+            address = ipaddress.ip_address(raw.strip())
+            if not address.is_global:
+                raise ValueError("IP observer returned a non-public IP address")
+        finally:
+            response.close()
+    except (requests.RequestException, TypeError, ValueError):
+        # Proxy errors and observer bodies can contain credentials; do not echo them.
+        log("注册前出口探测：未知（api.ipify.org 探测失败；继续原注册流程）")
+        return None
+    log(f"注册前出口探测 IP：{address}（api.ipify.org；不代表注册服务观测值）")
+    return str(address)
+
+
 def register(email, password, turnstile_token):
     s = requests.Session()
     s.headers.update(HEADERS)
     try:
+        report_registration_egress(s)
         r = s.post(
             PS_REGISTER,
             data={

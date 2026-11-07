@@ -6,6 +6,11 @@ import requests
 from nodes import api
 
 
+@pytest.fixture(autouse=True)
+def no_external_ip_probe(monkeypatch):
+    monkeypatch.setattr(api, "report_registration_egress", lambda session: None)
+
+
 @pytest.mark.parametrize(
     "payload,expected",
     [
